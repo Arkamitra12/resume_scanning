@@ -25,7 +25,9 @@ router = APIRouter(
 )
 
 
-# Create a new job (Recruiter only)
+# ==========================================================
+# CREATE A NEW JOB (RECRUITER ONLY)
+# ==========================================================
 @router.post(
     "",
     response_model=JobResponse,
@@ -51,13 +53,36 @@ def create_job(
     return new_job
 
 
-# Get all jobs
+# ==========================================================
+# GET OPEN JOBS (CANDIDATE PORTAL)
+# ==========================================================
 @router.get(
     "",
     response_model=list[JobResponse]
 )
 def get_all_jobs(
     db: Session = Depends(get_db)
+):
+    jobs = (
+        db.query(Job)
+        .filter(Job.status == "open")
+        .order_by(Job.created_at.desc())
+        .all()
+    )
+
+    return jobs
+
+
+# ==========================================================
+# GET ALL JOBS INCLUDING CLOSED JOBS (RECRUITER ONLY)
+# ==========================================================
+@router.get(
+    "/recruiter/all",
+    response_model=list[JobResponse]
+)
+def get_all_jobs_for_recruiter(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("recruiter"))
 ):
     jobs = (
         db.query(Job)
@@ -68,7 +93,9 @@ def get_all_jobs(
     return jobs
 
 
-# Get job details by ID
+# ==========================================================
+# GET JOB DETAILS BY ID
+# ==========================================================
 @router.get(
     "/{job_id}",
     response_model=JobResponse
@@ -92,7 +119,9 @@ def get_job_by_id(
     return job
 
 
-# Get job application and screening summary (Recruiter only)
+# ==========================================================
+# GET JOB APPLICATION AND SCREENING SUMMARY (RECRUITER ONLY)
+# ==========================================================
 @router.get(
     "/{job_id}/summary",
     response_model=JobSummaryResponse
@@ -155,7 +184,7 @@ def get_job_summary(
             Application.application_id == ReviewAction.application_id
         )
         .filter(Application.job_id == job_id)
-        .group_by(ReviewAction.application_id)
+        .group_by(Application.application_id)
         .subquery()
     )
 
@@ -199,3 +228,43 @@ def get_job_summary(
         hold_count=decisions.get("hold", 0),
         do_not_proceed_count=decisions.get("do_not_proceed", 0)
     )
+
+
+# ==========================================================
+# UPDATE JOB STATUS (RECRUITER ONLY)
+# ==========================================================
+@router.patch("/{job_id}/status")
+def update_job_status(
+    job_id: int,
+    status_value: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("recruiter"))
+):
+    job = (
+        db.query(Job)
+        .filter(Job.job_id == job_id)
+        .first()
+    )
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+
+    if status_value.lower() not in ["open", "closed"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Status must be open or closed"
+        )
+
+    job.status = status_value.lower()
+
+    db.commit()
+    db.refresh(job)
+
+    return {
+        "message": "Job status updated successfully",
+        "job_id": job.job_id,
+        "status": job.status
+    }

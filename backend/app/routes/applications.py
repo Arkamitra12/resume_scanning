@@ -33,8 +33,6 @@ UPLOAD_DIR = (
     / "uploads"
     / "resumes"
 )
-
-
 # Submit a job application with PDF resume (Candidate only)
 @router.post(
     "",
@@ -136,7 +134,16 @@ async def submit_application(
         db.commit()
         db.refresh(new_application)
 
-        return new_application
+        # Return the response including candidate_name
+        return {
+            "application_id": new_application.application_id,
+            "job_id": new_application.job_id,
+            "candidate_id": new_application.candidate_id,
+            "resume_file_path": new_application.resume_file_path,
+            "submitted_at": new_application.submitted_at,
+            "status": new_application.status,
+            "candidate_name": candidate.name
+        }
 
     except IntegrityError:
         db.rollback()
@@ -163,6 +170,135 @@ async def submit_application(
     finally:
         await resume.close()
 
+# # Submit a job application with PDF resume (Candidate only)
+# @router.post(
+#     "",
+#     response_model=ApplicationResponse,
+#     status_code=status.HTTP_201_CREATED
+# )
+# async def submit_application(
+#     job_id: int = Form(...),
+#     resume: UploadFile = File(...),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(require_role("candidate"))
+# ):
+
+#     # Find the candidate linked to the logged-in user
+#     candidate = db.query(Candidate).filter(
+#         Candidate.user_id == current_user.user_id
+#     ).first()
+
+#     if not candidate:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="Candidate profile not found"
+#         )
+
+#     # Check whether the job exists
+#     job = db.query(Job).filter(
+#         Job.job_id == job_id
+#     ).first()
+
+#     if not job:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="Job not found"
+#         )
+
+#     # Check whether the job is open
+#     if job.status != "open":
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="This job is closed"
+#         )
+
+#     # Prevent duplicate applications
+#     existing_application = db.query(Application).filter(
+#         Application.job_id == job_id,
+#         Application.candidate_id == candidate.candidate_id
+#     ).first()
+
+#     if existing_application:
+#         raise HTTPException(
+#             status_code=status.HTTP_409_CONFLICT,
+#             detail="You have already applied for this job"
+#         )
+
+#     # Validate PDF filename
+#     if not resume.filename or not resume.filename.lower().endswith(".pdf"):
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Only PDF resumes are allowed"
+#         )
+
+#     # Read uploaded PDF (maximum 5 MB)
+#     file_content = await resume.read(MAX_FILE_SIZE + 1)
+
+#     try:
+#         # Extract text to validate the PDF
+#         extract_resume_text(file_content)
+
+#     except ValueError as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail=str(e)
+#         )
+
+#     # Create upload directory if it does not exist
+#     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+#     # Generate a unique filename
+#     saved_filename = (
+#         f"application_{candidate.candidate_id}_{uuid4().hex}.pdf"
+#     )
+
+#     file_path = UPLOAD_DIR / saved_filename
+
+#     try:
+#         # Save PDF file
+#         with open(file_path, "wb") as pdf_file:
+#             pdf_file.write(file_content)
+
+#         # Store PDF path in PostgreSQL
+#         new_application = Application(
+#             job_id=job_id,
+#             candidate_id=candidate.candidate_id,
+#             resume_file_path=str(file_path),
+#             status="submitted"
+#         )
+
+#         db.add(new_application)
+#         db.commit()
+#         db.refresh(new_application)
+
+#         return new_application
+
+#     except IntegrityError:
+#         db.rollback()
+
+#         if file_path.exists():
+#             file_path.unlink()
+
+#         raise HTTPException(
+#             status_code=status.HTTP_409_CONFLICT,
+#             detail="You have already applied for this job"
+#         )
+
+#     except Exception:
+#         db.rollback()
+
+#         if file_path.exists():
+#             file_path.unlink()
+
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail="Failed to submit application."
+#         )
+
+#     finally:
+#         await resume.close()
+
+# Get individual application details (Recruiter only)
 # Get individual application details (Recruiter only)
 @router.get(
     "/{application_id}",
@@ -174,35 +310,94 @@ def get_application_by_id(
     current_user: User = Depends(require_role("recruiter"))
 ):
 
-    application = db.query(Application).filter(
+    result = db.query(
+        Application,
+        Candidate.name
+    ).join(
+        Candidate,
+        Application.candidate_id == Candidate.candidate_id
+    ).filter(
         Application.application_id == application_id
     ).first()
 
-    if not application:
+    if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Application not found"
         )
 
-    return application
+    application, candidate_name = result
+
+    return {
+        "application_id": application.application_id,
+        "job_id": application.job_id,
+        "candidate_id": application.candidate_id,
+        "resume_file_path": application.resume_file_path,
+        "submitted_at": application.submitted_at,
+        "status": application.status,
+        "candidate_name": candidate_name
+    }
 
 
 # Get all applications (Recruiter only)
 @router.get(
+
     "",
+
     response_model=list[ApplicationResponse]
+
 )
+
 def get_all_applications(
+
     db: Session = Depends(get_db),
+
     current_user: User = Depends(require_role("recruiter"))
+
 ):
 
-    applications = db.query(Application).order_by(
+    applications = db.query(
+
+        Application,
+
+        Candidate.name
+
+    ).join(
+
+        Candidate,
+
+        Application.candidate_id == Candidate.candidate_id
+
+    ).order_by(
+
         Application.submitted_at.desc()
+
     ).all()
 
-    return applications
+    result = []
 
+    for application, candidate_name in applications:
+
+        result.append({
+
+            "application_id": application.application_id,
+
+            "job_id": application.job_id,
+
+            "candidate_id": application.candidate_id,
+
+            "resume_file_path": application.resume_file_path,
+
+            "submitted_at": application.submitted_at,
+
+            "status": application.status,
+
+            "candidate_name": candidate_name
+
+        })
+
+    return result
+ 
 
 # from fastapi import APIRouter, Depends, HTTPException, status
 # from sqlalchemy.orm import Session

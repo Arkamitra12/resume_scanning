@@ -9,6 +9,7 @@ class ApplicationResponse(BaseModel):
     job_id: int
     candidate_id: int
     submitted_at: datetime
+    candidate_name:str
     status: Literal[
         "submitted",
         "screening_failed",

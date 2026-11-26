@@ -27,22 +27,42 @@ class CandidateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+ 
+
 class CandidateApplicationStatusResponse(BaseModel):
+
     application_id: int
 
+    job_id: int
+
+    job_title: str
+ 
     application_status: Literal[
+
         "submitted",
+
         "screening_failed",
+
         "screened",
+
         "reviewed"
-    ]
 
+    ]
+ 
     final_decision: Literal[
-        "pending",
-        "proceed",
-        "hold",
-        "do_not_proceed"
-    ]
 
+        "pending",
+
+        "proceed",
+
+        "hold",
+
+        "do_not_proceed"
+
+    ]
+ 
     recruiter_notes: Optional[str] = None
+
     reviewed_at: Optional[datetime] = None
+
+ 

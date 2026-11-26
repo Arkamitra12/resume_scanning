@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Candidate, User, Application, ReviewAction
+from app.models import Candidate, Application, ReviewAction, User, Job
 from app.schemas.candidate import (
     CandidateResponse,
     CandidateApplicationStatusResponse
@@ -63,6 +63,7 @@ def get_all_candidates(
 
 
 # Get applications and their review decisions (Candidate only)
+# Get applications and their review decisions (Candidate only)
 @router.get(
     "/my-applications",
     response_model=list[CandidateApplicationStatusResponse]
@@ -71,21 +72,25 @@ def get_my_applications(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("candidate"))
 ):
-
+ 
     # Find the candidate linked to the logged-in user
     candidate = db.query(Candidate).filter(
         Candidate.user_id == current_user.user_id
     ).first()
-
+ 
     if not candidate:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Candidate profile not found"
         )
-
-    # Retrieve all applications and their human reviews
+ 
+    # Retrieve applications, job details and human reviews
     applications = (
-        db.query(Application, ReviewAction)
+        db.query(Application, Job, ReviewAction)
+        .join(
+            Job,
+            Application.job_id == Job.job_id
+        )
         .outerjoin(
             ReviewAction,
             Application.application_id == ReviewAction.application_id
@@ -96,21 +101,22 @@ def get_my_applications(
         .order_by(Application.submitted_at.desc())
         .all()
     )
-
+ 
     results = []
-
-    for application, review in applications:
-
+ 
+    for application, job, review in applications:
+ 
         results.append({
             "application_id": application.application_id,
+            "job_id": job.job_id,
+            "job_title": job.title,
             "application_status": application.status,
             "final_decision": review.decision if review else "pending",
             "recruiter_notes": review.notes if review else None,
             "reviewed_at": review.reviewed_at if review else None
         })
-
+ 
     return results
-
 
 
 # Get individual candidate details (Recruiter only)
